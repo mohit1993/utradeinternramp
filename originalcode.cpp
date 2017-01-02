@@ -2,68 +2,40 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 using namespace std;
 
-class GeneralOrder;
 class ModifyOrder;
 class Order;
 class TradeMessage;
 class CancelOrder;
 
-int SearchOrders(vector<Order>, ModifyOrder obj);
+Order ParseOrderString(string);
+
+int SearchOrders(vector<Order>, ModifyOrder  obj);
 int SearchOrders(vector<Order>, TradeMessage obj);
-int SearchOrders(vector<Order>, CancelOrder obj);
+int SearchOrders(vector<Order>, CancelOrder  obj);
 
 char TypeOfOrder(string);
 
-Order ParseOrderString(string);
-ModifyOrder ParseModifyString(string);
+ModifyOrder  ParseModifyString(string);
 TradeMessage ParseTradeString(string);
-CancelOrder ParseCancelString(string);
+CancelOrder  ParseCancelString(string);
 
-class GeneralOrder {
+bool OrderComparator(Order&,Order&);
+void QueryOrders(vector<Order>&,string&);
 
-	public:
-		GeneralOrder() = default;
-
-		GeneralOrder(string sym,int q,int p){
-			symbol = sym;
-			qty = q;
-			price = p;
-		}
-
-		virtual string getSymbol()=0;
-
-		int getQuantity();
-
-		int getPrice();
-
-	protected:
-		string symbol;
-		int qty,price;
-};
-
-string GeneralOrder::getSymbol(){
-	return symbol;
-}
-
-int GeneralOrder::getQuantity(){
-	return qty;
-}
-
-int GeneralOrder::getPrice(){
-	return price;
-}
-
-
-class Order : public GeneralOrder {
+class Order{
 
 	public:
 		Order() = default;
 
-		Order(string sym,char s,int q,int p) : GeneralOrder(sym,q,p){
+		Order(string sym,char s,int q,int p){
+			symbol = sym;
 			side = s;
+			qty = q;
+			price = p;
 		}
 
 		friend ostream& operator<<(ostream& out, const Order& obj);
@@ -80,9 +52,98 @@ class Order : public GeneralOrder {
 
 		bool match(CancelOrder);
 
+		friend bool OrderComparator(Order&,Order&);
+
+		friend void QueryOrders(vector<Order>&,string&);
+
+		void showOrder(int);
+
 	private:
+		string symbol;
 		char side;
+		int qty,price;
 };
+
+void Order::showOrder(int r){
+	cout<<endl;
+	if(side == 'B') cout<<"BUY:";
+	else if(side == 'S') cout<<"SELL:";
+
+	cout<<" (Rank "<<r<<") "<<qty<<", "<<price;
+}
+
+void QueryOrders(vector<Order> &orders,string &query){
+
+	string symbol;
+	int rank = 0,size = query.size(),i=2,temprank=1;
+
+	bool isSymbolRead = false; 
+	
+	while(i < size){
+		if(isSymbolRead == false){
+				while(query[i] != ','){
+				symbol += query[i];
+				i++;
+			}
+			i++;
+			isSymbolRead = true;
+		}
+
+		else{
+			while(i < size && query[i]!= ','){
+				rank = rank*10 + (int)query[i] - 48;
+				i++;
+			}
+			i++;
+		}
+	}
+
+	if(rank == 0) return;
+
+	sort(orders.begin(),orders.end(),OrderComparator);
+
+	// for(vector<Order>::iterator it = orders.begin();it != orders.end(); it++){
+	// 	cout<<*it<<endl;
+	// }
+
+	cout<<"SYMBOL: "<<symbol;
+
+	for(vector<Order>::iterator it = orders.begin();it != orders.end(); it++){
+		if(temprank <= rank && it->symbol != symbol) continue;
+
+		else if(temprank > 2*rank) break;
+		
+		else if(temprank > rank && it->symbol != symbol) break;
+
+		else if(temprank <= rank && it->symbol == symbol && it->side == 'B'){
+			it->showOrder(temprank);
+			temprank++;
+		}
+		else if(it->symbol == symbol && it->side == 'S'){
+			it->showOrder((temprank-rank));
+			temprank++;
+		}
+	}
+}
+
+bool OrderComparator(Order& order1,Order& order2){
+
+	if(order1.symbol > order2.symbol) return true;
+
+	else if(order1.symbol == order2.symbol){
+		if(order1.side < order2.side) return true;
+		
+		else if(order1.side == order2.side){
+			if(order1.side == 'B' && order1.price > order2.price) return true;
+			
+			else if(order1.side == 'S' && order1.price < order2.price) return true;
+
+			else return false;
+		}
+		else return false;
+	}
+	else return false;
+}
 
 class CancelOrder {
 	public:
@@ -121,26 +182,21 @@ class ModifyOrder {
 	public:
 		ModifyOrder() = default;
 
-		ModifyOrder(string sym,char s,int oq,int nq,int op,int np,bool i){
+		ModifyOrder(string sym,char s,int oq,int nq,int op,int np){
 			symbol = sym;
 			side = s;
 			old_qty = oq;
 			new_qty = nq;
 			old_price = op;
 			new_price = np;
-			iqc = i;
 		}
 
-		bool isQtyChanged(){
-			return iqc;
+		int getNewPrice(){
+			return new_price;
 		}
 
-		int getModifiedValue(){
-			if(iqc){
-				return new_qty;
-			}
-			else
-				return new_price;
+		int getNewQuantity(){
+			return new_qty;
 		}
 
 		string getSymbol(){
@@ -163,7 +219,6 @@ class ModifyOrder {
 		string symbol;
 		char side;
 		int old_qty,new_qty,old_price,new_price;
-		bool iqc;
 };
 
 class TradeMessage {
@@ -199,13 +254,9 @@ ostream& operator<<(ostream& out, const Order& obj)  {
 }
 
 void Order::updateValues(ModifyOrder obj){
-	int value = obj.getModifiedValue();
-	if(obj.isQtyChanged()){
-		qty = value;
-	}
-	else{
-		price = value;
-	}
+
+	price = obj.getNewPrice();
+	qty = obj.getNewQuantity();
 }
 
 void Order::cancelOrder(CancelOrder obj){
@@ -316,12 +367,17 @@ int main(){
 				}
 				break;
 			}
+
+			case 'Q': {
+				QueryOrders(orders,inputOrderString);
+				break;
+			}
 		}
 	}	
 	
-	for(vector<Order>::iterator it = orders.begin();it != orders.end(); it++){
-		cout<<*it<<endl;
-	}
+	// for(vector<Order>::iterator it = orders.begin();it != orders.end(); it++){
+	// 	cout<<*it<<endl;
+	// }
 
 	cout<<endl;
 	return 0;
@@ -378,7 +434,6 @@ ModifyOrder ParseModifyString(string order){
 	string symbol = "";
 	char side;
 	int oq=0,nq=0,op=0,np=0;
-	bool iqc = false;
 
 	int stage = 6;
 
@@ -419,10 +474,6 @@ ModifyOrder ParseModifyString(string order){
 					i++;
 				}
 
-				if(oq != nq){
-					iqc = true;
-				}
-
 				i++;
 				stage--;
 				break;
@@ -452,7 +503,7 @@ ModifyOrder ParseModifyString(string order){
 		}
 	}
 
-	ModifyOrder temp(symbol,side,oq,nq,op,np,iqc);
+	ModifyOrder temp(symbol,side,oq,nq,op,np);
 
 	return temp;
 
